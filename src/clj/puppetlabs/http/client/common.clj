@@ -2,6 +2,7 @@
   (:import (java.net URL)
            (javax.net.ssl SSLContext)
            (org.apache.http.impl.nio.client CloseableHttpAsyncClient)
+           (com.codahale.metrics MetricRegistry Timer)
            (clojure.lang IBlockingDeref)
            (java.io InputStream)
            (java.nio.charset Charset))
@@ -20,8 +21,9 @@
   (trace [this url] [this url opts])
   (options [this url] [this url opts])
   (patch [this url] [this url opts])
+  (close [this])
   (make-request [this url method] [this url method opts])
-  (close [this]))
+  (get-client-metrics [this]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schemas
@@ -152,3 +154,9 @@
 
 (def Response
   (schema/either NormalResponse ErrorResponse))
+
+(def OptionalMetricRegistry
+  (schema/maybe MetricRegistry))
+
+(def Metrics
+  {schema/Str Timer})

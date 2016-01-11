@@ -5,6 +5,8 @@ import com.puppetlabs.http.client.HttpClientException;
 import com.puppetlabs.http.client.HttpMethod;
 import com.puppetlabs.http.client.RequestOptions;
 import com.puppetlabs.http.client.ResponseBodyType;
+import com.codahale.metrics.MetricRegistry;
+import com.codahale.metrics.Timer;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.http.Consts;
@@ -14,6 +16,7 @@ import org.apache.http.HttpRequest;
 import org.apache.http.HttpResponse;
 import org.apache.http.ParseException;
 import org.apache.http.ProtocolException;
+import org.apache.http.RequestLine;
 import org.apache.http.client.RedirectStrategy;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.config.RequestConfig.Builder;
@@ -257,9 +260,27 @@ public class JavaClient {
         }
     }
 
+    private static void executeWithoutConsumer(final CloseableHttpAsyncClient client,
+                                               final FutureCallback<HttpResponse> futureCallback,
+                                               final HttpRequestBase request,
+                                               final MetricRegistry registry) {
+
+        if (registry != null) {
+            final Timer.Context timerContext = timer(registry, request).time();
+            try {
+                client.execute(request, futureCallback);
+            } finally {
+                timerContext.stop();
+            }
+        } else {
+            client.execute(request, futureCallback);
+        }
+    }
+
     private static void executeWithConsumer(final CloseableHttpAsyncClient client,
                                             final FutureCallback<HttpResponse> futureCallback,
-                                            final HttpRequestBase request) {
+                                            final HttpRequestBase request,
+                                            final MetricRegistry registry) {
         /*
          * Create an Apache AsyncResponseConsumer that will return the response to us as soon as it is available,
          * then send the response body asynchronously
@@ -307,14 +328,24 @@ public class JavaClient {
                     }
                 };
 
-        client.execute(HttpAsyncMethods.create(request), consumer, streamingCompleteCallback);
+        if (registry != null) {
+            final Timer.Context timerContext = timer(registry, request).time();
+            try {
+                client.execute(HttpAsyncMethods.create(request), consumer, streamingCompleteCallback);
+            } finally {
+                timerContext.stop();
+            }
+        } else {
+            client.execute(HttpAsyncMethods.create(request), consumer, streamingCompleteCallback);
+        }
     }
 
     public static void requestWithClient(final RequestOptions requestOptions,
                                          final HttpMethod method,
                                          final IResponseCallback callback,
                                          final CloseableHttpAsyncClient client,
-                                         final ResponseDeliveryDelegate responseDeliveryDelegate) {
+                                         final ResponseDeliveryDelegate responseDeliveryDelegate,
+                                         final MetricRegistry registry) {
 
         final CoercedRequestOptions coercedRequestOptions = coerceRequestOptions(requestOptions, method);
 
@@ -342,11 +373,10 @@ public class JavaClient {
                         callback);
             }
         };
-
         if (requestOptions.getAs() == ResponseBodyType.UNBUFFERED_STREAM) {
-            executeWithConsumer(client, futureCallback, request);
+            executeWithConsumer(client, futureCallback, request, registry);
         } else {
-            client.execute(request, futureCallback);
+            executeWithoutConsumer(client, futureCallback, request, registry);
         }
     }
 
@@ -491,5 +521,10 @@ public class JavaClient {
         }
 
         return response;
+    }
+
+    private static Timer timer(MetricRegistry registry, HttpRequest request) {
+        final RequestLine requestLine = request.getRequestLine();
+        return registry.timer(MetricRegistry.name("puppetlabs.http-client", requestLine.getUri(), requestLine.getMethod()));
     }
 }

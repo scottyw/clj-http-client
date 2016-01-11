@@ -23,11 +23,15 @@
   (select-keys opts [:url :method :headers :body :decompress-body :as :query-params]))
 
 (defn request-with-client
-  [req client]
-  (let [{:keys [error] :as resp} @(async/request-with-client req nil client)]
+  [req client metric-registry]
+  (let [{:keys [error] :as resp} @(async/request-with-client req nil client metric-registry)]
     (if error
       (throw error)
       resp)))
+
+(defn get-client-metrics
+  [metric-registry]
+  (async/get-client-metrics metric-registry))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
@@ -35,31 +39,35 @@
 (defn request
   [req]
   (with-open [client (async/create-default-client (extract-client-opts req))]
-    (request-with-client (extract-request-opts req) client)))
+    (request-with-client (extract-request-opts req) client nil)))
 
 (schema/defn create-client :- (schema/protocol common/HTTPClient)
-  [opts :- common/ClientOptions]
-  (let [client (async/create-default-client opts)]
-    (reify common/HTTPClient
-      (get [this url] (common/get this url {}))
-      (get [this url opts] (common/make-request this url :get opts))
-      (head [this url] (common/head this url {}))
-      (head [this url opts] (common/make-request this url :head opts))
-      (post [this url] (common/post this url {}))
-      (post [this url opts] (common/make-request this url :post opts))
-      (put [this url] (common/put this url {}))
-      (put [this url opts] (common/make-request this url :put opts))
-      (delete [this url] (common/delete this url {}))
-      (delete [this url opts] (common/make-request this url :delete opts))
-      (trace [this url] (common/trace this url {}))
-      (trace [this url opts] (common/make-request this url :trace opts))
-      (options [this url] (common/options this url {}))
-      (options [this url opts] (common/make-request this url :post opts))
-      (patch [this url] (common/patch this url {}))
-      (patch [this url opts] (common/make-request this url :patch opts))
-      (make-request [this url method] (common/make-request this url method {}))
-      (make-request [_ url method opts] (request-with-client (assoc opts :method method :url url) client))
-      (close [_] (.close client)))))
+  ([opts :- common/ClientOptions]
+   (create-client opts nil))
+  ([opts :- common/ClientOptions
+    metric-registry :- common/OptionalMetricRegistry]
+   (let [client (async/create-default-client opts)]
+     (reify common/HTTPClient
+       (get [this url] (common/get this url {}))
+       (get [this url opts] (common/make-request this url :get opts))
+       (head [this url] (common/head this url {}))
+       (head [this url opts] (common/make-request this url :head opts))
+       (post [this url] (common/post this url {}))
+       (post [this url opts] (common/make-request this url :post opts))
+       (put [this url] (common/put this url {}))
+       (put [this url opts] (common/make-request this url :put opts))
+       (delete [this url] (common/delete this url {}))
+       (delete [this url opts] (common/make-request this url :delete opts))
+       (trace [this url] (common/trace this url {}))
+       (trace [this url opts] (common/make-request this url :trace opts))
+       (options [this url] (common/options this url {}))
+       (options [this url opts] (common/make-request this url :post opts))
+       (patch [this url] (common/patch this url {}))
+       (patch [this url opts] (common/make-request this url :patch opts))
+       (make-request [this url method] (common/make-request this url method {}))
+       (make-request [_ url method opts] (request-with-client (assoc opts :method method :url url) client metric-registry))
+       (close [_] (.close client))
+       (get-client-metrics [_] (get-client-metrics metric-registry))))))
 
 (defn get
   "Issue a synchronous HTTP GET request. This will raise an exception if an

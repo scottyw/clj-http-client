@@ -6,6 +6,7 @@ import com.puppetlabs.http.client.impl.PersistentSyncHttpClient;
 import com.puppetlabs.http.client.impl.CoercedClientOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.codahale.metrics.MetricRegistry;
 
 import javax.net.ssl.SSLContext;
 import java.io.IOException;
@@ -90,7 +91,22 @@ public class Sync {
                 JavaClient.coerceClientOptions(
                         SslUtils.configureSsl(clientOptions));
         return new PersistentSyncHttpClient(
-                JavaClient.createClient(coercedClientOptions));
+                JavaClient.createClient(coercedClientOptions), null);
+    }
+
+    /**
+     * Allows you to create an instance of an AsyncHttpClient for use in
+     * making HTTP requests.
+     *
+     * @param clientOptions the list of options with which to configure the client
+     * @param metricRegistry a metric registry to track metrics on client requests
+     * @return an AsyncHttpClient that can be used to make requests
+     */
+    public static SyncHttpClient createClient(ClientOptions clientOptions, MetricRegistry metricRegistry) {
+        CoercedClientOptions coercedClientOptions =
+                JavaClient.coerceClientOptions(
+                        SslUtils.configureSsl(clientOptions));
+        return new PersistentSyncHttpClient(JavaClient.createClient(coercedClientOptions), metricRegistry);
     }
 
     /**
