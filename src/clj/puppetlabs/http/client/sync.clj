@@ -20,7 +20,7 @@
                      :connect-timeout-milliseconds
                      :socket-timeout-milliseconds]))
 
-(schema/defn extract-request-opts :- common/RawUserRequestOptions
+(schema/defn extract-request-opts :- common/UserRequestOptions
   [opts :- common/RawUserRequestClientOptions]
   (select-keys opts [:url :method :headers :body :decompress-body :as :query-params]))
 

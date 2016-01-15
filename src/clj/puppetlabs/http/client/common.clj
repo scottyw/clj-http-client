@@ -64,17 +64,6 @@
    (ok :connect-timeout-milliseconds) schema/Int
    (ok :socket-timeout-milliseconds) schema/Int})
 
-(def RawUserRequestOptions
-  "The list of request options passed by a user into the
-  request function. Allows the user to configure a request."
-  {:url                   UrlOrString
-   :method                schema/Keyword
-   (ok :headers)          Headers
-   (ok :body)             Body
-   (ok :decompress-body)  schema/Bool
-   (ok :as)               BodyType
-   (ok :query-params)     {schema/Str schema/Str}})
-
 (def RequestOptions
   "The options from UserRequestOptions that have to do with the
   configuration and settings for an individual request. This is
@@ -82,10 +71,10 @@
   ClientOptions."
   {:url                   UrlOrString
    :method                schema/Keyword
-   :headers               Headers
-   :body                  Body
-   :decompress-body       schema/Bool
-   :as                    BodyType
+   (ok :headers)          Headers
+   (ok :body)             Body
+   (ok :decompress-body)  schema/Bool
+   (ok :as)               BodyType
    (ok :query-params)     {schema/Str schema/Str}})
 
 (def SslContextOptions
