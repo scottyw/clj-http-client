@@ -782,3 +782,51 @@
                  (is (= 200 (:status response)))
                  (is (= "Hello, World!" (slurp (:body response))))
                  (is (= nil (common/get-client-metrics client)))))))))))
+
+(tk/defservice test-metric-web-service
+  [[:WebserverService add-ring-handler]]
+  (init [this context]
+        (add-ring-handler (fn [_] (do {:status 200 :body "first"})) "/first")
+        (add-ring-handler (fn [_]
+                            (do
+                              (Thread/sleep 10) ;; this is in milliseconds
+                              {:status 200 :body "short"}))
+                          "/short")
+        (add-ring-handler (fn [_]
+                            (do
+                              (Thread/sleep 1000) ;; this is in milliseconds
+                              {:status 200 :body "long"}))
+                          "/long")
+        context))
+
+(deftest metrics-data-test-clojure-sync
+  (testing "metrics data work for clojure sync client"
+    (testlogging/with-test-logging
+     (testutils/with-app-with-config
+      app
+      [jetty9/jetty9-service test-metric-web-service]
+      {:webserver {:port 10000}}
+      (let [metric-registry (MetricRegistry.)]
+        (with-open [client (sync/create-client {} metric-registry)]
+          (let [first-response (common/get client "http://localhost:10000/first") ;; the first request always seems to take longer
+                short-response (common/get client "http://localhost:10000/short")
+                long-response (common/get client "http://localhost:10000/long")]
+            (is (= 200 (:status first-response)))
+            (is (= "first" (slurp (:body first-response))))
+            (is (= 200 (:status short-response)))
+            (is (= "short" (slurp (:body short-response))))
+            (is (= 200 (:status long-response)))
+            (is (= "long" (slurp (:body long-response))))
+            (let [client-metrics (common/get-client-metrics client)
+                  client-metrics-data (common/get-client-metrics-data client)
+                  all-metrics (into {} (.getMetrics metric-registry))]
+              ;; This should have the "/first" request take the shortest time
+              ;; (unless the first request taking longer does make sense?),
+              ;; then the "/short" request take a little bit longer, then the
+              ;; "/long" request take quite a bit longer. Instead, I mostly
+              ;; see that the "/first" request takes longest, followed by the
+              ;; "/short" request, and the "/long" request is shortest. This
+              ;; sometimes differs depending on whether I'm running the tests
+              ;; from the command line or whether I'm running the tests in
+              ;; Cursive's REPL.
+              (println client-metrics-data)))))))))

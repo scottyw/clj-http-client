@@ -12,7 +12,9 @@
 (ns puppetlabs.http.client.async
   (:import (com.puppetlabs.http.client ClientOptions RequestOptions ResponseBodyType HttpMethod)
            (org.apache.http.client.utils URIBuilder)
-           (com.puppetlabs.http.client.impl JavaClient ResponseDeliveryDelegate SslUtils ClientMetricFilter))
+           (com.puppetlabs.http.client.impl JavaClient ResponseDeliveryDelegate SslUtils ClientMetricFilter)
+           (com.codahale.metrics Timer MetricRegistry)
+           (java.util.concurrent TimeUnit))
   (:require [puppetlabs.http.client.common :as common]
             [schema.core :as schema])
   (:refer-clojure :exclude (get)))
@@ -123,6 +125,25 @@
       (.setDecompressBody (clojure.core/get opts :decompress-body true))
       (.setHeaders (:headers opts))))
 
+(schema/defn get-mean :- schema/Num
+  [timer :- Timer]
+  (println (into [] (.getValues (.getSnapshot timer)))) ;; print out the values (in nanoseconds) for the metric-id
+  (->> timer
+       .getSnapshot
+       .getMean
+       ;; This should be milliseconds, but the numbers I'm getting when I test
+       ;; this are in the hundreds of microseconds; milliseconds just rounds
+       ;; to 0.
+       (.toMicros TimeUnit/NANOSECONDS)))
+
+(defn get-metric-data
+  [timer]
+  (let [count (.getCount timer)
+        mean (get-mean timer)
+        aggregate (* count mean)]
+    {:count count
+     :mean mean
+     :aggregate aggregate}))
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
 
@@ -131,6 +152,15 @@
   [metric-registry :- common/OptionalMetricRegistry]
   (when metric-registry
     (into {} (.getTimers metric-registry (ClientMetricFilter.)))))
+
+(schema/defn get-client-metrics-data :- (schema/maybe common/MetricsData)
+  "Returns a list of maps, each of which contains metrics data for a metric id."
+  [metric-registry :- common/OptionalMetricRegistry]
+  (let [timers (get-client-metrics metric-registry)]
+    (map (fn [[metric-id timer]]
+           (println metric-id) ;; print out the metric-ids
+           (assoc (get-metric-data timer) :metric-id metric-id))
+         timers)))
 
 (schema/defn ^:always-validate request-with-client :- common/ResponsePromise
   "Issues an async HTTP request with the specified client and returns a promise
@@ -236,4 +266,5 @@
        (make-request [this url method] (common/make-request this url method {}))
        (make-request [_ url method opts] (request-with-client (assoc opts :method method :url url) nil client metric-registry))
        (close [_] (.close client))
-       (get-client-metrics [_] (get-client-metrics metric-registry))))))
+       (get-client-metrics [_] (get-client-metrics metric-registry))
+       (get-client-metrics-data [_] (get-client-metrics-data metric-registry))))))
