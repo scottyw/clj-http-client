@@ -450,10 +450,11 @@
 (tk/defservice test-metric-web-service
   [[:WebserverService add-ring-handler]]
   (init [this context]
+        (add-ring-handler (fn [_] {:status 200 :body "warm"}) "/warm")
         (add-ring-handler (fn [_] {:status 200 :body "first"}) "/first")
         (add-ring-handler (fn [_]
                             (do
-                              (Thread/sleep 10) ;; this is in milliseconds
+                              (Thread/sleep 50) ;; this is in milliseconds
                               {:status 200 :body "short"}))
                           "/short")
         (add-ring-handler (fn [_]
@@ -471,8 +472,9 @@
         [jetty9/jetty9-service test-metric-web-service]
         {:webserver {:port 10000}}
         (let [metric-registry (MetricRegistry.)]
-          (with-open [client (async/create-client {})]
-            (let [first-response @(common/get client "http://localhost:10000/first") ;; the first request always seems to take longer
+          (with-open [client (async/create-client {} metric-registry)]
+            (let [_ @(common/get client "http://localhost:10000/warm") ;; warm it up
+                  first-response @(common/get client "http://localhost:10000/first") ;; the first request always seems to take longer
                   short-response @(common/get client "http://localhost:10000/short")
                   long-response @(common/get client "http://localhost:10000/long")]
               (is (= 200 (:status first-response)))

@@ -260,23 +260,6 @@ public class JavaClient {
         }
     }
 
-    private static void executeWithoutConsumer(final CloseableHttpAsyncClient client,
-                                               final FutureCallback<HttpResponse> futureCallback,
-                                               final HttpRequestBase request,
-                                               final MetricRegistry registry) {
-
-        if (registry != null) {
-            final Timer.Context timerContext = timer(registry, request).time();
-            try {
-                client.execute(request, futureCallback);
-            } finally {
-                timerContext.stop();
-            }
-        } else {
-            client.execute(request, futureCallback);
-        }
-    }
-
     private static void executeWithConsumer(final CloseableHttpAsyncClient client,
                                             final FutureCallback<HttpResponse> futureCallback,
                                             final HttpRequestBase request,
@@ -355,19 +338,30 @@ public class JavaClient {
 
         final HttpContext httpContext = HttpClientContext.create();
 
+        final Timer.Context timerContext = registry == null ? null : timer(registry, request).time();
+
         final FutureCallback<HttpResponse> futureCallback = new FutureCallback<HttpResponse>() {
             @Override
             public void completed(HttpResponse httpResponse) {
+                if (timerContext != null) {
+                    timerContext.stop();
+                }
                 completeResponse(responseDeliveryDelegate, requestOptions, callback, httpResponse, httpContext);
             }
 
             @Override
             public void failed(Exception e) {
+                if (timerContext != null) {
+                    timerContext.stop();
+                }
                 responseDeliveryDelegate.deliverResponse(requestOptions, e, callback);
             }
 
             @Override
             public void cancelled() {
+                if (timerContext != null) {
+                    timerContext.stop();
+                }
                 responseDeliveryDelegate.deliverResponse(requestOptions,
                         new HttpClientException("Request cancelled"),
                         callback);
@@ -376,7 +370,7 @@ public class JavaClient {
         if (requestOptions.getAs() == ResponseBodyType.UNBUFFERED_STREAM) {
             executeWithConsumer(client, futureCallback, request, registry);
         } else {
-            executeWithoutConsumer(client, futureCallback, request, registry);
+            client.execute(request, futureCallback);
         }
     }
 
