@@ -263,24 +263,23 @@ public class JavaClient {
     }
 
     private static void executeWithConsumer(final CloseableHttpAsyncClient client,
-                                            final TimedFutureCallback<HttpResponse> futureCallback,
+                                            final FutureCallback<HttpResponse> futureCallback,
                                             final HttpRequestBase request,
                                             final MetricRegistry metricRegistry) {
-
-        // Create a timer to time the streaming of the payload.
-        final Timer.Context timerContext = metricRegistry == null ? null : unbufferedStreamTimer(metricRegistry, request).time();
 
         /*
          * Create an Apache AsyncResponseConsumer that will return the response to us as soon as it is available,
          * then send the response body asynchronously
          */
+        TimedFutureCallback<HttpResponse> timedFutureCallback = new TimedFutureCallback<>(futureCallback,
+                startTimer(metricRegistry, request));
         final StreamingAsyncResponseConsumer consumer =
                 new StreamingAsyncResponseConsumer(new Deliverable<HttpResponse>() {
-            @Override
-            public void deliver(HttpResponse httpResponse) {
-                futureCallback.completed(httpResponse); // this stops the timer for the request metric
-            }
-        });
+                    @Override
+                    public void deliver(HttpResponse httpResponse) {
+                        timedFutureCallback.completed(httpResponse); // this stops the timer for the request metric
+                    }
+                });
 
         /*
          * Normally the consumer returns the response as soon as it is available using the deliver() callback (above)
@@ -299,7 +298,7 @@ public class JavaClient {
                         consumer.setFinalResult(null);
 
                         // this stops the timer on the metric for the streaming of the payload
-                        futureCallback.timedCompleted(httpResponse, timerContext);
+                        futureCallback.completed(httpResponse);
                     }
 
                     @Override
@@ -309,17 +308,19 @@ public class JavaClient {
                         } else {
                             consumer.setFinalResult(new IOException(e));
                         }
-                        futureCallback.timedFailed(e, timerContext);
+                        futureCallback.failed(e);
                     }
 
                     @Override
                     public void cancelled() {
                         consumer.setFinalResult(null);
-                        futureCallback.timedCancelled(timerContext);
+                        futureCallback.cancelled();
                     }
                 };
 
-        client.execute(HttpAsyncMethods.create(request), consumer, streamingCompleteCallback);
+        TimedFutureCallback<HttpResponse> timedStreamingCompleteCallback = new TimedFutureCallback<>(streamingCompleteCallback,
+                startUnbufferedStreamTimer(metricRegistry, request));
+        client.execute(HttpAsyncMethods.create(request), consumer, timedStreamingCompleteCallback);
     }
 
     public static void requestWithClient(final RequestOptions requestOptions,
@@ -337,54 +338,30 @@ public class JavaClient {
 
         final HttpContext httpContext = HttpClientContext.create();
 
-        final Timer.Context timerContext = registry == null ? null : timer(registry, request).time();
-
-        final TimedFutureCallback<HttpResponse> futureCallback = new TimedFutureCallback<HttpResponse>() {
-
+        final FutureCallback<HttpResponse> futureCallback = new FutureCallback<HttpResponse>() {
             @Override
-            public void timedCompleted(HttpResponse httpResponse, Timer.Context context) {
-                if (context != null) {
-                    context.stop();
-                }
+            public void completed(HttpResponse httpResponse) {
                 completeResponse(responseDeliveryDelegate, requestOptions, callback, httpResponse, httpContext);
             }
 
             @Override
-            public void completed(HttpResponse httpResponse) {
-                timedCompleted(httpResponse, timerContext);
-            }
-
-            public void timedFailed(Exception e, Timer.Context context) {
-                if (context != null) {
-                    context.stop();
-                }
+            public void failed(Exception e) {
                 responseDeliveryDelegate.deliverResponse(requestOptions, e, callback);
             }
 
             @Override
-            public void failed(Exception e) {
-                timedFailed(e, timerContext);
-            }
-
-            @Override
-            public void timedCancelled(Timer.Context context) {
-                if (context != null) {
-                    context.stop();
-                }
+            public void cancelled() {
                 responseDeliveryDelegate.deliverResponse(requestOptions,
                         new HttpClientException("Request cancelled"),
                         callback);
             }
-
-            @Override
-            public void cancelled() {
-                timedCancelled(timerContext);
-            }
         };
+
         if (requestOptions.getAs() == ResponseBodyType.UNBUFFERED_STREAM) {
             executeWithConsumer(client, futureCallback, request, registry);
         } else {
-            client.execute(request, futureCallback);
+            TimedFutureCallback<HttpResponse> timedFutureCallback = new TimedFutureCallback<>(futureCallback, startTimer(registry, request));
+            client.execute(request, timedFutureCallback);
         }
     }
 
